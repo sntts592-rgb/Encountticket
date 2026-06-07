@@ -135,22 +135,31 @@ export default function App() {
   const loadAllRecords = async () => {
     setLoadingKB(true);
     try {
-      // Trigger search with empty term of 5 matches but wait, we can just get stats, 
-      // let's fetch matching tickets or retrieve full json directly to display
-      const res = await fetch('/api/kb/search?q=a'); // initial fetch
-      if (res.ok) {
-        const data = await res.json();
-        // Since search with dummy terms returns matches, we also query full database through static file if available or load in explorer
-      }
-      
-      // Load directly from static JSON cache for pristine search experience on the client
-      const jsonRes = await fetch('/src/data/tickets.json');
-      if (jsonRes.ok) {
-        const records = await jsonRes.json();
+      // Fetch directly from our new API endpoint to ensure full coverage of both cached 
+      // and custom added Service Desk tickets, working perfectly on serverless Vercel
+      const apiRes = await fetch('/api/kb/tickets');
+      if (apiRes.ok) {
+        const records = await apiRes.json();
         setAllKbRecords(records);
+      } else {
+        // Fallback to static JSON if api is not fully booted yet or in legacy dev offline modes
+        const jsonRes = await fetch('/src/data/tickets.json');
+        if (jsonRes.ok) {
+          const records = await jsonRes.json();
+          setAllKbRecords(records);
+        }
       }
     } catch (e) {
-      console.warn("Unable to fetch complete static JSON, falling back to dynamic queries", e);
+      console.warn("Unable to fetch complete KB records, trying fallback", e);
+      try {
+        const jsonRes = await fetch('/src/data/tickets.json');
+        if (jsonRes.ok) {
+          const records = await jsonRes.json();
+          setAllKbRecords(records);
+        }
+      } catch (fallbackErr) {
+        console.error("All data fetch vectors failed:", fallbackErr);
+      }
     } finally {
       setLoadingKB(false);
     }

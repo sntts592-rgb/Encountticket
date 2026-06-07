@@ -3,6 +3,7 @@ import path from 'path';
 import fs from 'fs';
 import { GoogleGenAI, Type } from '@google/genai';
 import { searchKB, KBRecord } from '../src/lib/search.js';
+import ticketsData from '../src/data/tickets.json';
 
 // Initialize Express App
 const app = express();
@@ -40,69 +41,99 @@ function parseCSVLine(line: string): string[] {
 
 function initializeKB() {
   try {
-    if (fs.existsSync(JSON_FILE_PATH)) {
-      console.log(`[Vercel Serverless] Loading existing processed knowledge base: ${JSON_FILE_PATH}`);
-      const data = fs.readFileSync(JSON_FILE_PATH, 'utf-8');
-      kbRecords = JSON.parse(data);
-    } else {
-      console.log(`[Vercel Serverless] Processed KB not found. Generating from raw CSV...`);
-      if (fs.existsSync(CSV_FILE_PATH)) {
-        const fileContent = fs.readFileSync(CSV_FILE_PATH, 'utf-8');
-        const lines = fileContent.split(/\r?\n/).filter(line => line.trim().length > 0);
-        
-        for (let i = 1; i < lines.length; i++) {
-          const rawFields = parseCSVLine(lines[i]);
-          if (rawFields.length < 6) continue;
+    // 1. Try compiled-in imported data first (Vercel automatic inclusion)
+    if (Array.isArray(ticketsData) && ticketsData.length > 0) {
+      console.log(`[Vercel Serverless] Loading directly from bundled JSON module: ${ticketsData.length} records.`);
+      kbRecords = ticketsData as KBRecord[];
+      return;
+    }
+  } catch (err) {
+    console.warn(`[Vercel Serverless] Imported json fallback:`, err);
+  }
 
-          const [intent, category, exampleQueries, requiredInfo, troubleshootingSteps, assignment] = rawFields;
+  try {
+    // 2. Try file system lookups with multiple fallback paths
+    const fsLookupPaths = [
+      JSON_FILE_PATH,
+      path.join(__dirname, '../src/data/tickets.json'),
+      path.join(__dirname, '../../src/data/tickets.json'),
+      path.join(process.cwd(), 'src/data/tickets.json')
+    ];
 
-          const queries = exampleQueries
-            .split(',')
-            .map(q => q.replace(/^"/, '').replace(/"$/, '').trim())
-            .filter(q => q.length > 0);
-
-          const reqInfoList = requiredInfo
-            .split(',')
-            .map(inf => inf.replace(/^"/, '').replace(/"$/, '').trim())
-            .filter(inf => inf.length > 0 && inf !== 'None');
-
-          let steps: string[] = [];
-          if (troubleshootingSteps.includes('?')) {
-            steps = troubleshootingSteps
-              .split('?')
-              .map(step => step.trim())
-              .filter(step => step.length > 0 && step !== '?');
-          } else {
-            steps = [troubleshootingSteps.trim()];
-          }
-
-          kbRecords.push({
-            id: `kb-${i}`,
-            intent: intent || 'unknown',
-            category: category || 'General',
-            queries: queries.length > 0 ? queries : [intent.replace(/_/g, ' ')],
-            requiredInfo: reqInfoList,
-            steps: steps.length > 0 ? steps : ['Follow standard guidelines.'],
-            assignment: assignment || 'SD Team',
-            rawText: `${intent} ${category} ${queries.join(' ')} ${assignment}`.toLowerCase()
-          });
+    for (const p of fsLookupPaths) {
+      try {
+        if (p && fs.existsSync(p)) {
+          console.log(`[Vercel Serverless] Loading processed knowledge base from filesystem: ${p}`);
+          const data = fs.readFileSync(p, 'utf-8');
+          kbRecords = JSON.parse(data);
+          if (kbRecords.length > 0) return;
         }
-        
-        // Write it if possible (will fail or be ignored in read-only Vercel environment, but we catch gracefully)
-        try {
-          const outputDir = path.dirname(JSON_FILE_PATH);
-          if (!fs.existsSync(outputDir)) {
-            fs.mkdirSync(outputDir, { recursive: true });
-          }
-          fs.writeFileSync(JSON_FILE_PATH, JSON.stringify(kbRecords, null, 2), 'utf-8');
-        } catch (writeErr) {
-          console.warn(`[Vercel Serverless] Warning: Could not write processed JSON to read-only filesystem:`, writeErr);
-        }
-        console.log(`[Vercel Serverless] Sourced and cached ${kbRecords.length} records.`);
-      } else {
-        console.error(`[Vercel Serverless] Warning: Raw CSV file not found at ${CSV_FILE_PATH}`);
-        kbRecords = [];
+      } catch (e) {
+        // silently try next path
       }
+    }
+
+    // 3. Raw CSV resolution with lookups
+    console.log(`[Vercel Serverless] Processed KB not found in fallback paths. Generating from raw CSV...`);
+    const csvLookupPaths = [
+      CSV_FILE_PATH,
+      path.join(__dirname, '../src/data/tickets_raw.csv'),
+      path.join(__dirname, '../../src/data/tickets_raw.csv'),
+      path.join(process.cwd(), 'src/data/tickets_raw.csv')
+    ];
+
+    let foundCsvPath = '';
+    for (const cp of csvLookupPaths) {
+      if (cp && fs.existsSync(cp)) {
+        foundCsvPath = cp;
+        break;
+      }
+    }
+
+    if (foundCsvPath) {
+      const fileContent = fs.readFileSync(foundCsvPath, 'utf-8');
+      const lines = fileContent.split(/\r?\n/).filter(line => line.trim().length > 0);
+      
+      for (let i = 1; i < lines.length; i++) {
+        const rawFields = parseCSVLine(lines[i]);
+        if (rawFields.length < 6) continue;
+
+        const [intent, category, exampleQueries, requiredInfo, troubleshootingSteps, assignment] = rawFields;
+
+        const queries = exampleQueries
+          .split(',')
+          .map(q => q.replace(/^"/, '').replace(/"$/, '').trim())
+          .filter(q => q.length > 0);
+
+        const reqInfoList = requiredInfo
+          .split(',')
+          .map(inf => inf.replace(/^"/, '').replace(/"$/, '').trim())
+          .filter(inf => inf.length > 0 && inf !== 'None');
+
+        let steps: string[] = [];
+        if (troubleshootingSteps.includes('?')) {
+          steps = troubleshootingSteps
+            .split('?')
+            .map(step => step.trim())
+            .filter(step => step.length > 0 && step !== '?');
+        } else {
+          steps = [troubleshootingSteps.trim()];
+        }
+
+        kbRecords.push({
+          id: `kb-${i}`,
+          intent: intent || 'unknown',
+          category: category || 'General',
+          queries: queries.length > 0 ? queries : [intent.replace(/_/g, ' ')],
+          requiredInfo: reqInfoList,
+          steps: steps.length > 0 ? steps : ['Follow standard guidelines.'],
+          assignment: assignment || 'SD Team',
+          rawText: `${intent} ${category} ${queries.join(' ')} ${assignment}`.toLowerCase()
+        });
+      }
+      console.log(`[Vercel Serverless] Sourced and loaded ${kbRecords.length} records from raw CSV.`);
+    } else {
+      console.error(`[Vercel Serverless] Warning: Raw CSV file could not be found anywhere!`);
     }
   } catch (error) {
     console.error(`[Vercel Serverless] Error initializing KB:`, error);
@@ -269,6 +300,15 @@ Synthesize a coherent solution following the required JSON schema output.`;
     res.json(parsedResponse);
   } catch (err: any) {
     console.error(`[Vercel Serverless] Synthesis error:`, err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// API ROUTE: Get All Knowledge Base Tickets
+app.get('/api/kb/tickets', (req, res) => {
+  try {
+    res.json(kbRecords);
+  } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
 });
