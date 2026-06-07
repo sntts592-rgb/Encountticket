@@ -24,6 +24,7 @@ import {
   Moon
 } from 'lucide-react';
 import { KBRecord, MatchResult, SynthesisResult, KBSstats } from './types';
+import ReactMarkdown from 'react-markdown';
 
 // Predefined Troublesome Sample Tickets representing complex real Service Desk encounters
 const SAMPLE_TICKETS = [
@@ -113,6 +114,10 @@ export default function App() {
   const [copiedResponse, setCopiedResponse] = useState(false);
   const [copiedSteps, setCopiedSteps] = useState<number | null>(null);
   const [copiedTeam, setCopiedTeam] = useState(false);
+  const [copiedReport, setCopiedReport] = useState(false);
+
+  // Active Synthesis Tab state
+  const [synthesisTab, setSynthesisTab] = useState<'report' | 'interactive' | 'email'>('report');
 
   // Load baseline statistics and database items
   useEffect(() => {
@@ -212,6 +217,7 @@ export default function App() {
       if (res.ok) {
         const data = await res.json();
         setSynthesis(data);
+        setSynthesisTab('report');
       } else {
         const errData = await res.json();
         setSynthesisError(errData.error || 'Generative Synthesis request failed.');
@@ -277,7 +283,7 @@ export default function App() {
     }
   };
 
-  const copyToClipboard = (text: string, type: 'response' | 'team' | 'step', idx?: number) => {
+  const copyToClipboard = (text: string, type: 'response' | 'team' | 'step' | 'report', idx?: number) => {
     navigator.clipboard.writeText(text);
     if (type === 'response') {
       setCopiedResponse(true);
@@ -288,6 +294,9 @@ export default function App() {
     } else if (type === 'step' && idx !== undefined) {
       setCopiedSteps(idx);
       setTimeout(() => setCopiedSteps(null), 1500);
+    } else if (type === 'report') {
+      setCopiedReport(true);
+      setTimeout(() => setCopiedReport(false), 2000);
     }
   };
 
@@ -309,6 +318,55 @@ export default function App() {
   // Unique lists for Filters in Explorer
   const uniqueCategories = stats?.categories.map(c => c.name) || ['Network', 'Messaging', 'Wintel', 'Asset Management', 'Azure', 'Endpoint Security'];
   const uniqueTeams = stats?.teams.map(t => t.name) || ['ITC - Network', 'Messaging Team', 'Wintel', 'Asset Team', 'Azure Team', 'ITC - Cyber Security', 'SCCM Team', 'SD Team'];
+
+  // Robust markdown fallback report generator
+  const getFallbackReport = (s: SynthesisResult) => {
+    if (s.detailedReport && s.detailedReport.trim().length > 0) {
+      return s.detailedReport;
+    }
+    
+    const stepsList = s.steps && s.steps.length > 0 
+      ? s.steps.map((st, i) => `${i + 1}. **${st}**`).join('\n\n')
+      : "1. No standard troubleshooting steps configured.";
+
+    const reqInfoList = s.requiredInfo && s.requiredInfo.length > 0 
+      ? s.requiredInfo.map(info => `- **${info}**`).join('\n')
+      : "- **All baseline deployment parameters are present**";
+
+    return `As your AI Service Desk Copilot, I'm here to help you understand and resolve the "${ticketInput || 'Dispatched'}" ticket.
+
+---
+
+**Issue Category:** ${s.category || 'N/A'}
+
+**Possible Intent:**
+We aligned this incoming Service Desk alert to intent **${s.intent || 'generic_support_request'}**. ${s.synthesisExplanation || 'Contextual parameters mapped successfully.'}
+
+**Required Information:**
+To proceed efficiently, please gather the following details from the user:
+${reqInfoList}
+
+**Missing Information (from the initial ticket):**
+The raw ticket is missing key technical details to resolve. Please ask the requester to verify or supply the missing info listed above.
+
+**Basic Troubleshooting:**
+1. Request the client perform a clean workstation reboot.
+2. Verify connection state is live and standard tools are authenticated.
+3. Advise the user to search the corporate software catalog/Software Center for standard versions.
+
+**Detailed HOW TO Steps:**
+${stepsList}
+
+**Advanced Checks:**
+1. Check standard installer setup logs or Event Viewer profiles for error codes.
+2. Confirm the user has appropriate administrative rights on the device (verify installation rights).
+3. Validate group policies, proxy status, or NAC/RADIUS checks if network/access issues persist.
+
+**Assignment Team:**
+- **Primary Assignment:** ${s.assignment || 'SD Team'}
+- **Escalation (if applicable):** ITC - Cyber Security or Senior Level Support
+`;
+  };
 
   return (
     <div id="ai-sd-copilot-root" className="min-h-screen bg-slate-50 text-slate-800 dark:bg-slate-950 dark:text-slate-100 font-sans selection:bg-indigo-100 antialiased flex flex-col transition-colors duration-200">
@@ -699,118 +757,184 @@ export default function App() {
                     {!isSynthesizing && synthesis && (
                       <div className="flex flex-col gap-6">
                         
-                        {/* Categorization & Assignment team row */}
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                          <div className="bg-indigo-50/50 dark:bg-indigo-950/20 border border-indigo-100 dark:border-indigo-900/40 rounded-xl p-3.5">
-                            <span className="text-[10px] font-mono text-slate-400 dark:text-slate-500 block uppercase font-bold tracking-wider">Categorization Classification</span>
-                            <p className="text-xs font-bold text-slate-800 dark:text-slate-200 mt-1">Category: <span className="text-indigo-700 dark:text-indigo-300 bg-white dark:bg-slate-950 border border-indigo-200 dark:border-indigo-800/80 px-1.5 py-0.5 rounded-md">{synthesis.category}</span></p>
-                            <p className="text-[11px] font-mono text-slate-500 dark:text-slate-400 mt-1.5">Intent: {synthesis.intent}</p>
-                          </div>
-
-                          <div className="bg-emerald-50/50 dark:bg-emerald-950/20 border border-emerald-100 dark:border-emerald-900/40 rounded-xl p-3.5 flex flex-col justify-between">
-                            <div>
-                              <span className="text-[10px] font-mono text-slate-400 dark:text-slate-500 block uppercase font-bold tracking-wider">Triage Team Routing</span>
-                              <p className="text-xs font-bold text-emerald-800 dark:text-emerald-300 mt-1">{synthesis.assignment}</p>
-                            </div>
-                            <button
-                              onClick={() => copyToClipboard(synthesis.assignment, 'team')}
-                              className="self-end text-[10px] text-emerald-700 dark:text-emerald-400 hover:text-emerald-900 dark:hover:text-emerald-300 font-semibold flex items-center gap-1 mt-2 cursor-pointer"
-                            >
-                              {copiedTeam ? <Check className="h-3 w-3" /> : <Clipboard className="h-3 w-3" />}
-                              {copiedTeam ? 'Copied Routing!' : 'Copy Team Name'}
-                            </button>
-                          </div>
+                        {/* Tab Switcher */}
+                        <div className="flex border-b border-slate-200 dark:border-slate-800 pb-px">
+                          <button
+                            id="tab-synthesis-report"
+                            onClick={() => setSynthesisTab('report')}
+                            className={`flex-1 pb-3 text-xs font-bold border-b-2 text-center transition-all cursor-pointer ${
+                              synthesisTab === 'report'
+                                ? 'border-indigo-600 text-indigo-700 dark:border-indigo-400 dark:text-indigo-400 font-extrabold'
+                                : 'border-transparent text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200'
+                            }`}
+                          >
+                            Detailed Analyst Report
+                          </button>
+                          <button
+                            id="tab-synthesis-interactive"
+                            onClick={() => setSynthesisTab('interactive')}
+                            className={`flex-1 pb-3 text-xs font-bold border-b-2 text-center transition-all cursor-pointer ${
+                              synthesisTab === 'interactive'
+                                ? 'border-indigo-600 text-indigo-700 dark:border-indigo-400 dark:text-indigo-400 font-extrabold'
+                                : 'border-transparent text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200'
+                            }`}
+                          >
+                            Interactive Step Tracker
+                          </button>
+                          <button
+                            id="tab-synthesis-email"
+                            onClick={() => setSynthesisTab('email')}
+                            className={`flex-1 pb-3 text-xs font-bold border-b-2 text-center transition-all cursor-pointer ${
+                              synthesisTab === 'email'
+                                ? 'border-indigo-600 text-indigo-700 dark:border-indigo-400 dark:text-indigo-400 font-extrabold'
+                                : 'border-transparent text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200'
+                            }`}
+                          >
+                            Email Template
+                          </button>
                         </div>
 
-                        {/* Gap Sourcing: Critical Required Info (missing in ticket!) */}
-                        <div className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden bg-white dark:bg-slate-900/40">
-                          <div className="bg-amber-50/60 dark:bg-amber-955/20 p-3 border-b border-amber-250 dark:border-amber-900/50 flex items-center justify-between">
-                            <h4 className="text-xs font-bold text-amber-800 dark:text-amber-300 flex items-center gap-1.5">
-                              <AlertTriangle className="h-3.5 w-3.5 text-amber-500" strokeWidth={2.5} />
-                              Missing Technical details detected
-                            </h4>
-                            <span className="text-[10.5px] bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-500 font-mono px-1.5 py-0.5 rounded">Action Item</span>
-                          </div>
-                          <div className="p-4 bg-amber-50/20 dark:bg-transparent">
-                            <p className="text-[11px] text-slate-600 dark:text-slate-400 mb-3.5 leading-relaxed">
-                              The following variables were not found in the raw user ticket, but are required by our corporate standard to act. Please request these from the user:
-                            </p>
-                            <div className="flex flex-wrap gap-2">
-                              {synthesis.requiredInfo.length === 0 ? (
-                                <span className="text-xs text-slate-400 dark:text-slate-500 italic">No missing details! All required parameters supplied.</span>
-                              ) : (
-                                synthesis.requiredInfo.map((field, idx) => (
-                                  <span key={idx} className="bg-white dark:bg-slate-950 border border-amber-300 dark:border-amber-900/40 text-amber-800 dark:text-amber-300 px-2.5 py-1 text-xs rounded-lg font-mono font-semibold shadow-2xs">
-                                    {field}
-                                  </span>
-                                ))
-                              )}
+                        {/* TAB 1: DETAILED REPORT VIEW (Default tab, showing the exhaustive complete Markdown report) */}
+                        {synthesisTab === 'report' && (
+                          <div className="flex flex-col gap-4">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[10px] font-mono text-slate-400 dark:text-slate-500 uppercase tracking-widest font-bold font-semibold">EXHAUSTIVE COPILOT ANALYSIS</span>
+                              <button
+                                onClick={() => copyToClipboard(getFallbackReport(synthesis), 'report')}
+                                className="bg-indigo-600 hover:bg-indigo-700 text-white font-mono text-[10px] px-3 py-1.5 rounded-lg font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+                              >
+                                {copiedReport ? <Check className="h-3 w-3" /> : <Clipboard className="h-3 w-3" />}
+                                {copiedReport ? 'Copied Full Report!' : 'Copy Entire Report'}
+                              </button>
+                            </div>
+                            <div className="bg-slate-50 dark:bg-slate-950/40 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 overflow-y-auto max-h-[600px] shadow-sm">
+                              <div className="markdown-body max-w-none text-slate-700 dark:text-slate-300">
+                                <ReactMarkdown>{getFallbackReport(synthesis)}</ReactMarkdown>
+                              </div>
                             </div>
                           </div>
-                        </div>
+                        )}
 
-                        {/* High Craft Troubleshooting Checklist */}
-                        <div>
-                          <div className="flex items-center justify-between mb-2">
-                            <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wide flex items-center gap-1.5">
-                              <CheckSquare className="h-4 w-4 text-indigo-600" />
-                              Resolution Troubleshooting Steps
-                            </h4>
-                            <span className="text-[11px] font-mono text-slate-400 dark:text-slate-500">{synthesis.steps.length} steps Sourced</span>
-                          </div>
-                          <div className="space-y-2">
-                            {synthesis.steps.map((step, idx) => (
-                              <div key={idx} className="bg-slate-50 dark:bg-slate-900 hover:bg-slate-100/50 dark:hover:bg-slate-800 border border-slate-200/80 dark:border-slate-805 rounded-xl p-3 flex items-start justify-between gap-3 group transition-colors">
-                                <div className="flex items-start gap-2.5">
-                                  <span className="bg-indigo-100 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-400 w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0 mt-0.5">
-                                    {idx + 1}
-                                  </span>
-                                  <p className="text-xs text-slate-700 dark:text-slate-250 leading-relaxed font-semibold">{step}</p>
+                        {/* TAB 2: INTERACTIVE STEP CHECKLIST TRACKER */}
+                        {synthesisTab === 'interactive' && (
+                          <div className="flex flex-col gap-6">
+                            
+                            {/* Categorization & Assignment team row */}
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                              <div className="bg-indigo-50/50 dark:bg-indigo-950/20 border border-indigo-100 dark:border-indigo-900/40 rounded-xl p-3.5">
+                                <span className="text-[10px] font-mono text-slate-400 dark:text-slate-500 block uppercase font-bold tracking-wider">Categorization Classification</span>
+                                <p className="text-xs font-bold text-slate-800 dark:text-slate-200 mt-1">Category: <span className="text-indigo-700 dark:text-indigo-300 bg-white dark:bg-slate-950 border border-indigo-200 dark:border-indigo-800/80 px-1.5 py-0.5 rounded-md">{synthesis.category}</span></p>
+                                <p className="text-[11px] font-mono text-slate-500 dark:text-slate-400 mt-1.5">Intent: {synthesis.intent}</p>
+                              </div>
+
+                              <div className="bg-emerald-50/50 dark:bg-emerald-950/20 border border-emerald-100 dark:border-emerald-900/40 rounded-xl p-3.5 flex flex-col justify-between">
+                                <div>
+                                  <span className="text-[10px] font-mono text-slate-400 dark:text-slate-500 block uppercase font-bold tracking-wider">Triage Team Routing</span>
+                                  <p className="text-xs font-bold text-emerald-800 dark:text-emerald-300 mt-1">{synthesis.assignment}</p>
                                 </div>
                                 <button
-                                  onClick={() => copyToClipboard(step, 'step', idx)}
-                                  className="text-slate-400 dark:text-slate-550 hover:text-slate-700 dark:hover:text-slate-300 p-1 rounded-md hover:bg-slate-200 dark:hover:bg-slate-755 transition-colors cursor-pointer flex-shrink-0 md:opacity-0 group-hover:opacity-100"
-                                  title="Copy troubleshooting step text"
+                                  onClick={() => copyToClipboard(synthesis.assignment, 'team')}
+                                  className="self-end text-[10px] text-emerald-700 dark:text-emerald-400 hover:text-emerald-900 dark:hover:text-emerald-300 font-semibold flex items-center gap-1 mt-2 cursor-pointer"
                                 >
-                                  {copiedSteps === idx ? <Check className="h-3 w-3 text-emerald-600" /> : <Clipboard className="h-3 w-3" />}
+                                  {copiedTeam ? <Check className="h-3 w-3" /> : <Clipboard className="h-3 w-3" />}
+                                  {copiedTeam ? 'Copied Routing!' : 'Copy Team Name'}
                                 </button>
                               </div>
-                            ))}
-                          </div>
-                        </div>
+                            </div>
 
-                        {/* Synthesis explanation logic */}
-                        <div className="bg-slate-50 dark:bg-slate-900 hover:bg-slate-100/50 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 rounded-xl p-4 transition-colors">
-                          <span className="text-[10px] font-mono text-slate-400 dark:text-slate-500 uppercase tracking-wider block font-bold mb-1.5">Sourcing Alignment logic from Copilot:</span>
-                          <p className="text-xs text-slate-600 dark:text-slate-300 font-medium leading-relaxed italic">
-                            "{synthesis.synthesisExplanation}"
-                          </p>
-                        </div>
+                            {/* Gap Sourcing: Critical Required Info (missing in ticket!) */}
+                            <div className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden bg-white dark:bg-slate-900/40">
+                              <div className="bg-amber-50/60 dark:bg-amber-955/20 p-3 border-b border-amber-250 dark:border-amber-900/50 flex items-center justify-between">
+                                <h4 className="text-xs font-bold text-amber-800 dark:text-amber-300 flex items-center gap-1.5">
+                                  <AlertTriangle className="h-3.5 w-3.5 text-amber-500" strokeWidth={2.5} />
+                                  Missing Technical details detected
+                                </h4>
+                                <span className="text-[10.5px] bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-500 font-mono px-1.5 py-0.5 rounded">Action Item</span>
+                              </div>
+                              <div className="p-4 bg-amber-50/20 dark:bg-transparent">
+                                <p className="text-[11px] text-slate-600 dark:text-slate-400 mb-3.5 leading-relaxed">
+                                  The following variables were not found in the raw user ticket, but are required by our corporate standard to act. Please request these from the user:
+                                </p>
+                                <div className="flex flex-wrap gap-2">
+                                  {synthesis.requiredInfo.length === 0 ? (
+                                    <span className="text-xs text-slate-400 dark:text-slate-500 italic">No missing details! All required parameters supplied.</span>
+                                  ) : (
+                                    synthesis.requiredInfo.map((field, idx) => (
+                                      <span key={idx} className="bg-white dark:bg-slate-950 border border-amber-300 dark:border-amber-900/40 text-amber-800 dark:text-amber-300 px-2.5 py-1 text-xs rounded-lg font-mono font-semibold shadow-2xs">
+                                        {field}
+                                      </span>
+                                    ))
+                                  )}
+                                </div>
+                              </div>
+                            </div>
 
-                        {/* Polish copyable Email response template card */}
-                        <div className="border border-indigo-200 dark:border-indigo-900/60 rounded-xl overflow-hidden bg-indigo-50/20 dark:bg-indigo-955/10">
-                          <div className="bg-indigo-50 dark:bg-indigo-955/30 p-3.5 border-b border-indigo-150 dark:border-indigo-900/50 flex items-center justify-between">
-                            <h4 className="text-xs font-bold text-indigo-800 dark:text-indigo-300 flex items-center gap-1.5">
-                              <Mail className="h-4 w-4 text-indigo-700" />
-                              Polished User Response Email Template
-                            </h4>
-                            <button
-                              onClick={() => copyToClipboard(synthesis.suggestedResponse, 'response')}
-                              className="bg-indigo-600 hover:bg-indigo-700 text-white font-mono text-[10px] px-3 py-1.5 rounded-lg font-semibold flex items-center gap-1 transition-colors cursor-pointer"
-                            >
-                              {copiedResponse ? <Check className="h-3 w-3" /> : <Clipboard className="h-3 w-3" />}
-                              {copiedResponse ? 'Copied Response!' : 'Copy Email'}
-                            </button>
+                            {/* High Craft Troubleshooting Checklist */}
+                            <div>
+                              <div className="flex items-center justify-between mb-2">
+                                <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wide flex items-center gap-1.5">
+                                  <CheckSquare className="h-4 w-4 text-indigo-600" />
+                                  Resolution Troubleshooting Steps
+                                </h4>
+                                <span className="text-[11px] font-mono text-slate-400 dark:text-slate-500">{synthesis.steps.length} steps Sourced</span>
+                              </div>
+                              <div className="space-y-2">
+                                {synthesis.steps.map((step, idx) => (
+                                  <div key={idx} className="bg-slate-50 dark:bg-slate-900 hover:bg-slate-100/50 dark:hover:bg-slate-800 border border-slate-200/80 dark:border-slate-805 rounded-xl p-3 flex items-start justify-between gap-3 group transition-colors">
+                                    <div className="flex items-start gap-2.5">
+                                      <span className="bg-indigo-100 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-400 w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0 mt-0.5 font-mono">
+                                        {idx + 1}
+                                      </span>
+                                      <p className="text-xs text-slate-700 dark:text-slate-250 leading-relaxed font-semibold">{step}</p>
+                                    </div>
+                                    <button
+                                      onClick={() => copyToClipboard(step, 'step', idx)}
+                                      className="text-slate-400 dark:text-slate-550 hover:text-slate-700 dark:hover:text-slate-300 p-1 rounded-md hover:bg-slate-200 dark:hover:bg-slate-755 transition-colors cursor-pointer flex-shrink-0 md:opacity-0 group-hover:opacity-100"
+                                      title="Copy troubleshooting step text"
+                                    >
+                                      {copiedSteps === idx ? <Check className="h-3 w-3 text-emerald-600" /> : <Clipboard className="h-3 w-3" />}
+                                    </button>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+
+                            {/* Synthesis explanation logic */}
+                            <div className="bg-slate-50 dark:bg-slate-900 hover:bg-slate-100/50 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 rounded-xl p-4 transition-colors">
+                              <span className="text-[10px] font-mono text-slate-400 dark:text-slate-500 uppercase tracking-wider block font-bold mb-1.5">Sourcing Alignment logic from Copilot:</span>
+                              <p className="text-xs text-slate-600 dark:text-slate-300 font-medium leading-relaxed italic">
+                                "{synthesis.synthesisExplanation}"
+                              </p>
+                            </div>
                           </div>
-                          <div className="p-4 bg-white dark:bg-slate-900">
-                            <pre className="text-slate-700 dark:text-slate-200 text-xs font-mono leading-relaxed whitespace-pre-wrap select-all p-3 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl font-medium max-h-72 overflow-y-auto">
-                              {synthesis.suggestedResponse}
-                            </pre>
-                            <p className="text-[10.5px] text-slate-400 dark:text-slate-500 mt-2 italic text-right font-mono">
-                              *Includes placeholder markers dynamically populated based on identified missing info.
-                            </p>
+                        )}
+
+                        {/* TAB 3: COPILOT EMAIL RESPONSE TEMPLATE */}
+                        {synthesisTab === 'email' && (
+                          <div className="border border-indigo-200 dark:border-indigo-900/60 rounded-xl overflow-hidden bg-indigo-50/20 dark:bg-indigo-955/10">
+                            <div className="bg-indigo-50 dark:bg-indigo-955/30 p-3.5 border-b border-indigo-150 dark:border-indigo-900/50 flex items-center justify-between">
+                              <h4 className="text-xs font-bold text-indigo-800 dark:text-indigo-300 flex items-center gap-1.5">
+                                <Mail className="h-4 w-4 text-indigo-700" />
+                                Polished User Response Email Template
+                              </h4>
+                              <button
+                                onClick={() => copyToClipboard(synthesis.suggestedResponse, 'response')}
+                                className="bg-indigo-600 hover:bg-indigo-700 text-white font-mono text-[10px] px-3 py-1.5 rounded-lg font-semibold flex items-center gap-1 transition-colors cursor-pointer"
+                              >
+                                {copiedResponse ? <Check className="h-3 w-3" /> : <Clipboard className="h-3 w-3" />}
+                                {copiedResponse ? 'Copied Response!' : 'Copy Email'}
+                              </button>
+                            </div>
+                            <div className="p-4 bg-white dark:bg-slate-900">
+                              <pre className="text-slate-700 dark:text-slate-200 text-xs font-mono leading-relaxed whitespace-pre-wrap select-all p-3 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl font-medium max-h-72 overflow-y-auto">
+                                {synthesis.suggestedResponse}
+                              </pre>
+                              <p className="text-[10.5px] text-slate-400 dark:text-slate-500 mt-2 italic text-right font-mono">
+                                *Includes placeholder markers dynamically populated based on identified missing info.
+                              </p>
+                            </div>
                           </div>
-                        </div>
+                        )}
 
                       </div>
                     )}

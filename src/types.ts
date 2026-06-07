@@ -23,6 +23,7 @@ export interface SynthesisResult {
   assignment: string;
   synthesisExplanation: string;
   suggestedResponse: string;
+  detailedReport: string;
 }
 
 export interface KBSstats {

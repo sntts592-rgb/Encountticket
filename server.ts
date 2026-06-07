@@ -219,15 +219,27 @@ Primary Assignment Team: ${ticket.assignment}
     }
 
     // Build the instruction prompt that strictly implements using KB as source of truth and intelligently fills gap
-    const systemPrompt = `You are "AI SD Copilot," an elite Service Desk Copilot. 
-Your primary directive: Settle incoming technical Service Desk tickets with absolute accuracy.
+    const systemPrompt = `You are "AI SD Copilot," an elite Service Desk Copilot built to settle technical Service Desk tickets with absolute accuracy.
 
-We have searched our historical Knowledge Base (KB) and provided you with the top KB results. Here is your strict handbook:
+We have searched our historical Knowledge Base (KB) and provided you with the top KB results. Here is your strict handbook to construct a detailed Copilot analysis report:
 1. Treat "Internal KB Results" as the absolute primary source of truth. Sourced intents, categories, and assignment teams MUST match closely unless there's zero correlation.
 2. Sift through the user's description. If the KB matches, construct the solution around the pre-vetted KB steps.
-3. IN FILLING MISSING INFO: Be extremely sharp at detecting details that are required but missing from the ticket description (e.g. if the KB specifies: "Device, Switch IP, Port", and the agent description only tells us "switch port config needed", immediately highlight "Switch IP" and "Port Number" under Required Info).
-4. GAP RECOVERY: Intelligently supplement simple standard technical instructions if the sourced KB is generic, but prioritize standard IT team operating procedure (e.g. if dealing with SentinelOne alerts, ensure they are checked in SentinelOne console and tamper protection is verified).
-5. Always generate a courteous, professional and direct markdown template email response that the agent can immediately copy and send to the requester.`;
+3. IN FILLING MISSING INFO: Be extremely sharp at detecting details that are required but missing from the ticket description.
+4. GAP RECOVERY: Intelligently supplement standard technical instructions option-by-option.
+5. In addition to segmented properties, you MUST generate an extremely exhaustive, beautifully formatted Markdown analysis guide in the "detailedReport" field. It must strictly adhere to this section layout structure:
+
+- An introduction line: "As your AI Service Desk Copilot, I'm here to help you understand and resolve the "[Ticket Title]" ticket."
+- A horizontal rule divider (---)
+- "**Issue Category:** [Category Name]"
+- "**Possible Intent:**\n[1-2 paragraphs detailing the logical intent, different user objectives, and contextual considerations]"
+- "**Required Information:**\n[Detailed bulleted or nested list of device details, installation context, network environment parameters, or access levels required]"
+- "**Missing Information (from the initial ticket):**\n[Clear callouts of which required parameters are missing from the raw dispatch request description]"
+- "**Basic Troubleshooting:**\n[Initial baseline sanity checks, e.g. device reboot, company software center checks, or physical checks]"
+- "**Detailed HOW TO Steps:**\n[Extremely detailed, multi-level nested step-by-step resolution processes with clear paths, portal names, buttons, and verification steps. Break down into different modes/scenarios if applicable, like Preferred/Alternative, or Corporate vs Guest]"
+- "**Advanced Checks:**\n[In-depth technical diagnostic points such as event logs, system requirements deep-dives, administrative rights, group nesting policies, or NAC/RADIUS checks as appropriate]"
+- "**Assignment Team:**\n- **Primary Assignment:** [Primary Team with clear details on duties]\n- **Escalation (if applicable):** [Escalation path and details]"
+
+6. Also generate a courteous, professional and direct markdown template email response that the agent can immediately copy and send to the requester in the "suggestedResponse" field.`;
 
     const userMessage = `AGENT DISPATCHED TICKET:
 "${ticketDescription}"
@@ -261,9 +273,10 @@ Synthesize a coherent solution following the required JSON schema output.`;
             },
             assignment: { type: Type.STRING, description: 'The correct team to assign this ticket to (e.g., ITC - Network, Messaging Team, Wintel, SCCM Team, ITC - Cyber Security).' },
             synthesisExplanation: { type: Type.STRING, description: 'A clear explanation of how you aligned the input to our internal KB database, what gaps were filled, and key reasons for team routing.' },
-            suggestedResponse: { type: Type.STRING, description: 'Formatted polite email or chat message template for the user with variables like [User Name] or [Device Name] so the Service Desk agent can copy-paste.' }
+            suggestedResponse: { type: Type.STRING, description: 'Formatted polite email or chat message template for the user with variables like [User Name] or [Device Name] so the Service Desk agent can copy-paste.' },
+            detailedReport: { type: Type.STRING, description: 'An exhaustive, beautifully structured Markdown guide with all requested sections covering Category, Intent, Required & Missing Info, Basic & Detailed Troubleshooting How-To Steps, Advanced Checks, and Assignment Team.' }
           },
-          required: ['category', 'intent', 'requiredInfo', 'steps', 'assignment', 'synthesisExplanation', 'suggestedResponse']
+          required: ['category', 'intent', 'requiredInfo', 'steps', 'assignment', 'synthesisExplanation', 'suggestedResponse', 'detailedReport']
         }
       }
     });
