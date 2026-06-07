@@ -1,0 +1,6 @@
+{
+  "name": "AI SD Copilot",
+  "description": "An intelligent layer between an Excel-based Knowledge Base and the Service Desk ticket encounter featuring semantic search and prompt synthesis.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
